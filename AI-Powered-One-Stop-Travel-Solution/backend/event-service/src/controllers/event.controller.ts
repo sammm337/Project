@@ -8,33 +8,24 @@ const eventService = new EventService();
 // Initialize service on startup
 eventService.initialize().catch(console.error);
 
+eventRouter.get('/', async (_req: Request, res: Response) => {
+  try {
+    const events = await eventService.listEvents();
+    res.json({ success: true, data: events, events });
+  } catch (error: any) {
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+    } else {
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+});
+
 eventRouter.post('/', async (req: Request, res: Response) => {
   try {
-    const {
-      agencyId,
-      title,
-      description,
-      location,
-      startDate,
-      endDate,
-      price,
-      totalSeats,
-      tags
-    } = req.body;
+    const event = await eventService.createEventFromPayload(req.body);
 
-    const event = await eventService.createEvent({
-      agencyId,
-      title,
-      description,
-      location,
-      startDate: new Date(startDate),
-      endDate: endDate ? new Date(endDate) : undefined,
-      price,
-      totalSeats,
-      tags
-    });
-
-    res.status(201).json({ success: true, data: event });
+    res.status(201).json({ success: true, data: event, event });
   } catch (error: any) {
     if (error instanceof AppError) {
       res.status(error.statusCode).json({ success: false, error: error.message });
@@ -60,14 +51,15 @@ eventRouter.get('/:id', async (req: Request, res: Response) => {
 
 eventRouter.post('/:id/book', async (req: Request, res: Response) => {
   try {
-    // This endpoint will be proxied to booking-service
-    // For now, just return a message
-    res.json({ 
-      success: true, 
-      message: 'Booking request received. Please use POST /api/bookings endpoint.' 
-    });
+    const { id } = req.params;
+    const booking = await eventService.bookEvent(id, req.body);
+    res.status(201).json({ success: true, data: booking });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: 'Internal server error' });
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+    } else {
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
   }
 });
 

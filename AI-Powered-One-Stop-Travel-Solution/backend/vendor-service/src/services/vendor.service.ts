@@ -121,6 +121,170 @@ export class VendorService {
     return packages;
   }
 
+  async generateMetadata(vendorId: string, listingId?: string) {
+    if (!vendorId) {
+      throw new ValidationError('vendorId is required');
+    }
+
+    const vendorResult = await this.db.query(
+      'SELECT id, business_name, location FROM vendors WHERE id = $1',
+      [vendorId]
+    );
+
+    if (vendorResult.rows.length === 0) {
+      throw new NotFoundError('Vendor');
+    }
+
+    const vendor = vendorResult.rows[0];
+    const vendorLocation =
+      typeof vendor.location === 'string' ? JSON.parse(vendor.location) : vendor.location || {};
+    const listingContext = listingId ? await this.fetchListingContext(listingId) : null;
+    const location = listingContext?.location || vendorLocation;
+
+    const title =
+      listingContext?.title ||
+      `${vendor.business_name} ${location?.city ? `- ${location.city}` : 'Signature Experience'}`;
+
+    const description = this.composeDescription(
+      vendor.business_name,
+      location,
+      listingContext?.description,
+      listingContext?.rawText
+    );
+
+    const tags = this.buildTagList({
+      tags: listingContext?.tags,
+      location,
+      rawText: listingContext?.rawText,
+      price: listingContext?.price
+    });
+
+    return {
+      title,
+      description,
+      tags
+    };
+  }
+
+  private async fetchListingContext(listingId: string) {
+    const pgResult = await this.db.query(
+      `SELECT title, description, tags, price, location
+       FROM listings
+       WHERE id = $1`,
+      [listingId]
+    );
+
+    if (pgResult.rows.length > 0) {
+      const row = pgResult.rows[0];
+      const location =
+        typeof row.location === 'string' ? JSON.parse(row.location) : row.location || {};
+      return {
+        title: row.title,
+        description: row.description,
+        tags: row.tags || [],
+        price: row.price ? Number(row.price) : undefined,
+        location,
+        rawText: row.description
+      };
+    }
+
+    if (!this.mongo) {
+      await this.initialize();
+    }
+
+    if (!ObjectId.isValid(listingId)) {
+      return null;
+    }
+
+    const db = this.mongo!.db('travel_marketplace');
+    const doc = await db.collection('vendor_packages').findOne({
+      _id: new ObjectId(listingId)
+    });
+    if (!doc) {
+      return null;
+    }
+
+    return {
+      title: doc.title,
+      description: doc.description,
+      tags: doc.tags || [],
+      price: doc.price,
+      location: doc.location,
+      rawText: doc.raw_text
+    };
+  }
+
+  private buildTagList(input: {
+    tags?: string[];
+    location?: any;
+    rawText?: string;
+    price?: number;
+  }) {
+    const tagSet = new Set<string>();
+
+    (input.tags || []).forEach((tag) => tagSet.add(String(tag).trim()));
+
+    if (input.location?.city) {
+      tagSet.add(input.location.city);
+    }
+    if (input.location?.region) {
+      tagSet.add(input.location.region);
+    }
+    if (typeof input.price === 'number') {
+      tagSet.add(input.price > 5000 ? 'Premium' : 'Budget');
+    }
+
+    if (input.rawText) {
+      this.extractKeywords(input.rawText).forEach((keyword) => tagSet.add(keyword));
+    }
+
+    if (tagSet.size === 0) {
+      ['Local', 'Hosted', 'SlowTravel'].forEach((tag) => tagSet.add(tag));
+    }
+
+    return Array.from(tagSet).filter(Boolean).slice(0, 8);
+  }
+
+  private composeDescription(
+    vendorName: string,
+    location: any,
+    listingDescription?: string,
+    rawText?: string
+  ) {
+    const segments: string[] = [];
+
+    const where = location?.city ? ` in ${location.city}` : '';
+    segments.push(`${vendorName} curates intimate, community-run experiences${where}.`);
+
+    if (listingDescription) {
+      segments.push(listingDescription);
+    }
+
+    if (rawText) {
+      const highlight = rawText.slice(0, 160).trim();
+      segments.push(`Highlights: ${highlight}${highlight.length === 160 ? '...' : ''}`);
+    }
+
+    return segments.join(' ');
+  }
+
+  private extractKeywords(text: string) {
+    const counts = new Map<string, number>();
+    const tokens = text
+      .toLowerCase()
+      .split(/[^a-zA-Z]+/)
+      .filter((token) => token.length > 4);
+
+    tokens.forEach((token) => {
+      counts.set(token, (counts.get(token) || 0) + 1);
+    });
+
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([token]) => token.charAt(0).toUpperCase() + token.slice(1))
+      .slice(0, 4);
+  }
+
   private getFileType(filePath: string): string {
     const ext = filePath.split('.').pop()?.toLowerCase();
     if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) return 'image';

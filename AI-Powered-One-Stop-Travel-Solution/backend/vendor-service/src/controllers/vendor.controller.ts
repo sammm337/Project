@@ -65,3 +65,17 @@ vendorRouter.get('/packages/:vendorId', async (req: Request, res: Response) => {
   }
 });
 
+vendorRouter.post('/generate-metadata', async (req: Request, res: Response) => {
+  try {
+    const { vendorId, listingId } = req.body;
+    const metadata = await vendorService.generateMetadata(vendorId, listingId);
+    res.json({ success: true, data: metadata });
+  } catch (error: any) {
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+    } else {
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+});
+

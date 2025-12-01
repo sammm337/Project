@@ -4,38 +4,41 @@ import { RabbitMQClient } from '../../../shared/dist/rabbitmq/client';
 import { EventCreatedEvent } from '../../../shared/dist/types/events';
 import { NotFoundError, ValidationError } from '../../../shared/dist/utils/errors';
 
+interface NormalizedEventInput {
+  agencyId: string;
+  title: string;
+  description: string;
+  location: Record<string, unknown>;
+  startDate: Date;
+  endDate?: Date;
+  price: number;
+  totalSeats: number;
+  tags?: string[];
+}
+
 export class EventService {
   private db: Pool;
   private mq: RabbitMQClient;
+  private bookingServiceUrl: string;
+  private defaultAgencyCache = new Map<string, string>();
+  private guestUserId: string | null = null;
 
   constructor() {
     this.db = connectDB();
     this.mq = new RabbitMQClient(process.env.RABBITMQ_URL || 'amqp://localhost:5672', 'event-service');
+    this.bookingServiceUrl = process.env.BOOKING_SERVICE_URL || 'http://booking-service:3006';
   }
 
   async initialize() {
     await this.mq.connect();
   }
 
-  async createEvent(data: {
-    agencyId: string;
-    title: string;
-    description: string;
-    location: any;
-    startDate: Date;
-    endDate?: Date;
-    price: number;
-    totalSeats: number;
-    tags?: string[];
-  }) {
-    if (!data.title || !data.agencyId || !data.location) {
-      throw new ValidationError('Title, agencyId, and location are required');
-    }
+  async createEventFromPayload(payload: any) {
+    const normalized = await this.normalizeCreatePayload(payload);
+    return this.createEvent(normalized);
+  }
 
-    if (data.totalSeats <= 0) {
-      throw new ValidationError('Total seats must be greater than 0');
-    }
-
+  async createEvent(data: NormalizedEventInput) {
     const result = await this.db.query(
       `INSERT INTO events (agency_id, title, description, location, start_date, end_date, price, total_seats, available_seats, tags)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -49,14 +52,13 @@ export class EventService {
         data.endDate || null,
         data.price,
         data.totalSeats,
-        data.totalSeats, // Initially all seats are available
+        data.totalSeats,
         data.tags || []
       ]
     );
 
     const event = result.rows[0];
 
-    // Publish event.created event
     const eventCreated: EventCreatedEvent = {
       topic: 'event.created',
       payload: {
@@ -77,6 +79,64 @@ export class EventService {
     return event;
   }
 
+  async listEvents(limit = 50) {
+    const result = await this.db.query(
+      `SELECT id, title, description, location, start_date, price, tags, total_seats, available_seats
+       FROM events
+       ORDER BY start_date ASC
+       LIMIT $1`,
+      [limit]
+    );
+
+    return result.rows.map((row) => {
+      const location =
+        typeof row.location === 'string' ? JSON.parse(row.location) : row.location || {};
+
+      return {
+        id: row.id,
+        title: row.title,
+        summary: row.description,
+        location,
+        city: location.city ?? location.city_name ?? 'Unknown',
+        date: row.start_date,
+        price: Number(row.price),
+        capacity: row.total_seats,
+        availableSeats: row.available_seats,
+        tags: row.tags || []
+      };
+    });
+  }
+
+  async bookEvent(
+    eventId: string,
+    payload: { userId?: string; name?: string; guests?: number }
+  ) {
+    const event = await this.getEventById(eventId);
+    const seats = this.ensurePositiveNumber(payload?.guests, 1);
+    const userId = payload?.userId || (await this.ensureGuestUser(payload?.name));
+    const totalAmount = Number(event.price) * seats;
+
+    const response = await fetch(`${this.bookingServiceUrl}/api/bookings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        eventId,
+        listingId: null,
+        seats,
+        total_amount: totalAmount
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.success === false) {
+      throw new ValidationError(data.error || 'Unable to create booking');
+    }
+
+    return data;
+  }
+
   async getEventById(id: string) {
     const result = await this.db.query(
       `SELECT e.*, a.business_name as agency_name 
@@ -91,6 +151,144 @@ export class EventService {
     }
 
     return result.rows[0];
+  }
+
+  private async normalizeCreatePayload(payload: any): Promise<NormalizedEventInput> {
+    if (!payload || typeof payload !== 'object') {
+      throw new ValidationError('Invalid event payload');
+    }
+
+    const title = String(payload.title ?? '').trim();
+    if (!title) {
+      throw new ValidationError('Title is required');
+    }
+
+    const rawStartDate = payload.startDate ?? payload.date ?? new Date().toISOString();
+    const startDate = new Date(rawStartDate);
+    if (Number.isNaN(startDate.getTime())) {
+      throw new ValidationError('Invalid event date');
+    }
+
+    const endDate = payload.endDate ? new Date(payload.endDate) : undefined;
+    if (endDate && Number.isNaN(endDate.getTime())) {
+      throw new ValidationError('Invalid event end date');
+    }
+
+    const price = this.ensurePositiveNumber(payload.price, 0);
+    const totalSeats = this.ensurePositiveNumber(payload.totalSeats ?? payload.capacity, 20);
+    if (totalSeats <= 0) {
+      throw new ValidationError('Total seats must be greater than 0');
+    }
+
+    const location = this.buildLocation(payload.location, payload.city);
+    const agencyId =
+      payload.agencyId || (await this.ensureDefaultAgency(location.city as string | undefined));
+
+    return {
+      agencyId,
+      title,
+      description: payload.description ?? payload.summary ?? '',
+      location,
+      startDate,
+      endDate,
+      price,
+      totalSeats,
+      tags: this.parseTags(payload.tags)
+    };
+  }
+
+  private parseTags(input: unknown): string[] {
+    if (Array.isArray(input)) {
+      return input.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 10);
+    }
+
+    if (typeof input === 'string') {
+      return input
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 10);
+    }
+
+    return [];
+  }
+
+  private buildLocation(rawLocation: unknown, fallbackCity?: string) {
+    if (rawLocation && typeof rawLocation === 'object') {
+      return rawLocation as Record<string, unknown>;
+    }
+
+    const city = typeof rawLocation === 'string' ? rawLocation : fallbackCity;
+
+    return {
+      city: city || 'Unknown',
+      label: city || 'Unknown'
+    };
+  }
+
+  private ensurePositiveNumber(value: unknown, fallback: number): number {
+    const parsed =
+      typeof value === 'number' ? value : value !== undefined ? Number(value) : Number.NaN;
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+    return fallback;
+  }
+
+  private async ensureDefaultAgency(city?: string): Promise<string> {
+    const key = (city || 'general').toLowerCase();
+    if (this.defaultAgencyCache.has(key)) {
+      return this.defaultAgencyCache.get(key)!;
+    }
+
+    const friendlyName = city ? `Demo Agency - ${city}` : 'Demo Agency';
+    const existing = await this.db.query(
+      'SELECT id FROM agencies WHERE business_name = $1 LIMIT 1',
+      [friendlyName]
+    );
+
+    if (existing.rows.length > 0) {
+      const agencyId = existing.rows[0].id;
+      this.defaultAgencyCache.set(key, agencyId);
+      return agencyId;
+    }
+
+    const inserted = await this.db.query(
+      `INSERT INTO agencies (business_name, whatsapp_number, location)
+       VALUES ($1, $2, $3)
+       RETURNING id`,
+      [friendlyName, '0000000000', JSON.stringify({ city: city || 'Unknown' })]
+    );
+
+    const agencyId = inserted.rows[0].id;
+    this.defaultAgencyCache.set(key, agencyId);
+    return agencyId;
+  }
+
+  private async ensureGuestUser(name?: string): Promise<string> {
+    if (this.guestUserId) {
+      return this.guestUserId;
+    }
+
+    const email = 'guest@travel.local';
+    const existing = await this.db.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [email]);
+
+    if (existing.rows.length > 0) {
+      const userId = String(existing.rows[0].id);
+      this.guestUserId = userId;
+      return userId;
+    }
+
+    const created = await this.db.query(
+      `INSERT INTO users (email, password_hash, full_name, role)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [email, 'guest', name || 'Guest Booker', 'traveler']
+    );
+
+    const userId = String(created.rows[0].id);
+    this.guestUserId = userId;
+    return userId;
   }
 }
 

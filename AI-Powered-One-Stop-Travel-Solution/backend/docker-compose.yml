@@ -214,6 +214,7 @@ services:
       PORT: 3005
       DATABASE_URL: postgresql://travel_user:travel_pass@postgres:5432/travel_marketplace
       RABBITMQ_URL: amqp://rabbit_user:rabbit_pass@rabbitmq:5672
+      BOOKING_SERVICE_URL: http://booking-service:3006
     depends_on:
       postgres:
         condition: service_healthy
