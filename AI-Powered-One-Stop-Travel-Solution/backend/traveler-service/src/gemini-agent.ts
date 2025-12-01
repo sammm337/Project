@@ -1,31 +1,33 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import axios from 'axios';
 
 export class ItineraryAgent {
-  private model;
+  private apiKey: string;
 
   constructor(apiKey: string) {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    this.model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    console.log("🔑 Traveler Service API KEY:", apiKey ? "LOADED" : "MISSING");
+    this.apiKey = apiKey;
   }
 
-  async generateItinerary(destination: string, days: number, budget: string, interests: string) {
+  async generateItinerary(
+    destination: string,
+    days: number,
+    budget: string,
+    interests: string
+  ) {
     const prompt = `
       Create a detailed ${days}-day travel itinerary for a trip to ${destination}.
+      One day should have 3-4 blocks only.
       Budget: ${budget}.
       Interests: ${interests}.
-      
-      Return ONLY a valid JSON object with the following structure, no markdown formatting or backticks:
+
+      Respond ONLY with valid JSON:
       {
         "days": [
           {
             "day": 1,
             "title": "Theme of the day",
             "blocks": [
-              {
-                "time": "09:00 AM",
-                "activity": "Activity description",
-                "location": "Location name"
-              }
+              { "time": "09:00", "activity": "Activity", "location": "Location" }
             ]
           }
         ]
@@ -33,17 +35,32 @@ export class ItineraryAgent {
     `;
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
       
-      // Clean up potential markdown code blocks if Gemini adds them
-      const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      
-      return JSON.parse(cleanedText);
+
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${this.apiKey}`,
+        {
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }]
+            }
+          ]
+        },
+        {
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+
+      const text =
+        response.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+
+      const cleaned = text.replace(/```json|```/g, "").trim();
+
+      return JSON.parse(cleaned);
     } catch (error) {
-      console.error('Gemini generation error:', error);
-      throw new Error('Failed to generate itinerary');
+      console.error("Gemini generation error:", error);
+      throw new Error("Failed to generate itinerary");
     }
   }
 }

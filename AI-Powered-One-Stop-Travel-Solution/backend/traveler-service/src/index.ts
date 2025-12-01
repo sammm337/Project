@@ -45,6 +45,7 @@ app.post('/api/traveler/recommend', async (req, res) => {
 
 app.post('/api/traveler/itinerary', async (req, res) => {
   try {
+    console.log("📥 Received itinerary request:", req.body); 
     const { destination, days, budget, interests } = req.body;
 
     if (!agent) {

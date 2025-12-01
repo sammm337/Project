@@ -29,8 +29,8 @@ Object.entries(services).forEach(([path, target]) => {
       target,
       changeOrigin: true,
       ws: true,
-      proxyTimeout: 5000,
-      timeout: 5000,
+      proxyTimeout: 120000,
+      timeout: 120000,
       // Important: do NOT parse body before proxying
       selfHandleResponse: false,
       onError: (err, req, res) => {
