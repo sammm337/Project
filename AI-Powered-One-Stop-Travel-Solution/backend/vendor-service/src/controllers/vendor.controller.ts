@@ -1,6 +1,22 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
 import { VendorService } from '../services/vendor.service';
 import { AppError } from '../../../shared/dist/utils/errors';
+
+// 1. Configure Multer (Simple disk storage for now)
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Ideally this should map to a shared volume or temp dir
+    cb(null, '/tmp'); 
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage: storage });
 
 export const vendorRouter = Router();
 const vendorService = new VendorService();
@@ -22,12 +38,48 @@ vendorRouter.post('/create', async (req: Request, res: Response) => {
   }
 });
 
-vendorRouter.post('/create-package', async (req: Request, res: Response) => {
+// 2. Add Multer Middleware to route
+const uploadFields = upload.fields([
+  { name: 'audio', maxCount: 1 }, 
+  { name: 'images', maxCount: 10 }
+]);
+
+vendorRouter.post('/create-package', uploadFields, async (req: Request, res: Response) => {
   try {
-    const { vendorId, files, price, location, raw_text } = req.body;
-    const result = await vendorService.createPackage(vendorId, files, price, location, raw_text);
+    const filesMap = req.files as { [fieldname: string]: Express.Multer.File[] };
+    
+    // Only process images since you disabled audio
+    const filePaths: string[] = [];
+    if (filesMap['images']) {
+      filesMap['images'].forEach(f => filePaths.push(f.path));
+    }
+
+    // Extract fields
+    const { vendorId, price, title, description, location: locationStr } = req.body;
+    
+    // Parse location
+    let location = { city: 'Unknown' };
+    if (locationStr) {
+      try {
+        location = JSON.parse(locationStr);
+      } catch (e) {
+        console.error('Failed to parse location JSON', e);
+      }
+    }
+
+    // UPDATE: Pass title and description to the service
+    const result = await vendorService.createPackage(
+      vendorId, 
+      filePaths, 
+      Number(price), 
+      location, 
+      title, 
+      description
+    );
+
     res.status(201).json({ success: true, data: result });
   } catch (error: any) {
+    console.error('Upload Error:', error);
     if (error instanceof AppError) {
       res.status(error.statusCode).json({ success: false, error: error.message });
     } else {
@@ -78,4 +130,3 @@ vendorRouter.post('/generate-metadata', async (req: Request, res: Response) => {
     }
   }
 });
-

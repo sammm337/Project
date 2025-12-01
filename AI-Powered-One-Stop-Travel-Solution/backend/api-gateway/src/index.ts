@@ -17,7 +17,8 @@ const services: Record<string, string> = {
   '/api/bookings': process.env.BOOKING_SERVICE_URL || 'http://booking-service:3006',
   '/search': process.env.SEARCH_SERVICE_URL || 'http://search-service:3007',
   '/api/media': process.env.MEDIA_SERVICE_URL || 'http://media-service:3008',
-  '/api/traveler': process.env.TRAVELER_SERVICE_URL || 'http://traveler-service:3011'
+  '/api/traveler': process.env.TRAVELER_SERVICE_URL || 'http://traveler-service:3011',
+  '/ws': process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3009'
 };
 
 // 🔥 FIX: Proxy BEFORE body parser

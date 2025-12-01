@@ -29,7 +29,16 @@ export function createVendor(payload: VendorPayload) {
   });
 }
 
-export function createPackage(payload: PackagePayload) {
+export function createPackage(payload: PackagePayload | FormData) {
+  
+  if (payload instanceof FormData) {
+    // Direct FormData upload (This is what VendorDashboard.tsx uses now)
+    return requestForm<{ listingId: string }>('/api/vendor/create-package', payload, {
+      method: 'POST'
+    });
+  }
+
+  // Legacy/Strict object handling (Keep this if other files use it)
   if (payload.audio || payload.images) {
     const formData = new FormData();
     formData.append('vendorId', payload.vendorId);
@@ -37,8 +46,13 @@ export function createPackage(payload: PackagePayload) {
     formData.append('description', payload.description);
     formData.append('price', payload.price.toString());
     formData.append('tags', JSON.stringify(payload.tags));
+    
+    // Add location if your Payload interface has it, otherwise default
+    // formData.append('location', JSON.stringify(payload.location)); 
+
     if (payload.audio) formData.append('audio', payload.audio);
     payload.images?.forEach((img) => formData.append('images', img));
+    
     return requestForm<{ listingId: string }>('/api/vendor/create-package', formData, {
       method: 'POST'
     });

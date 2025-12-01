@@ -32,17 +32,26 @@ export class VendorService {
     return result.rows[0];
   }
 
-  async createPackage(vendorId: string, files: string[], price: number, location: any, raw_text?: string) {
+  async createPackage(
+    vendorId: string, 
+    files: string[], 
+    price: number, 
+    location: any, 
+    title: string,       // <--- NEW
+    description: string  // <--- NEW
+  ) {
     if (!files || files.length === 0) {
-      throw new ValidationError('At least one file is required');
+      throw new ValidationError('At least one image is required');
     }
 
     if (!price || price <= 0) {
       throw new ValidationError('Valid price is required');
     }
 
-    // Verify vendor exists
-    const vendorCheck = await this.db.query('SELECT id FROM vendors WHERE id = $1', [vendorId]);
+    const realVendorId = await this.resolveVendorId(vendorId);
+
+    // Verify vendor exists (existing logic...)
+    const vendorCheck = await this.db.query('SELECT id FROM vendors WHERE id = $1', [realVendorId]);
     if (vendorCheck.rows.length === 0) {
       throw new NotFoundError('Vendor');
     }
@@ -50,24 +59,26 @@ export class VendorService {
     const packageObjectId = new ObjectId();
     const packageId = packageObjectId.toHexString();
     
-    // Save draft in MongoDB
     if (!this.mongo) {
       await this.initialize();
     }
     const db = this.mongo!.db('travel_marketplace');
+
+    // UPDATE: Save the title and description in the document
     await db.collection('vendor_packages').insertOne({
       _id: packageObjectId,
-      vendorId,
+      vendorId: realVendorId,
       files,
       price,
       location,
-      raw_text,
+      title,             // <--- SAVED
+      description,       // <--- SAVED
       status: 'draft',
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
-    // Publish media.uploaded events for each file
+    // Publish media.uploaded events (existing logic...)
     for (const filePath of files) {
       const event: MediaUploadedEvent = {
         topic: 'media.uploaded',
@@ -76,13 +87,60 @@ export class VendorService {
           entityId: packageId,
           filePath,
           fileType: this.getFileType(filePath),
-          fileSize: 0 // Would need to get actual size from file system
+          fileSize: 0 
         }
       };
       await this.mq.publish('media.uploaded', event.payload);
     }
 
     return { packageId };
+  }
+  // 🔥 Helper to handle 'demo-vendor' or validate UUIDs
+  private async resolveVendorId(input: string): Promise<string> {
+    if (input === 'demo-vendor') {
+      const demoName = 'Demo Vendor';
+      
+      // Check if demo vendor exists
+      const existing = await this.db.query(
+        'SELECT id FROM vendors WHERE business_name = $1 LIMIT 1', 
+        [demoName]
+      );
+      
+      if (existing.rows.length > 0) {
+        return existing.rows[0].id;
+      }
+
+      // Create guest user if needed
+      const email = 'vendor@travel.local';
+      let userId: string;
+      const userCheck = await this.db.query('SELECT id FROM users WHERE email = $1', [email]);
+      
+      if (userCheck.rows.length > 0) {
+        userId = userCheck.rows[0].id;
+      } else {
+        const newUser = await this.db.query(
+          "INSERT INTO users (email, password_hash, full_name, role) VALUES ($1, $2, $3, 'vendor') RETURNING id",
+          [email, 'hashedpass', 'Demo Vendor User']
+        );
+        userId = newUser.rows[0].id;
+      }
+
+      // Create the vendor
+      const newVendor = await this.db.query(
+        'INSERT INTO vendors (user_id, business_name, whatsapp_number, location) VALUES ($1, $2, $3, $4) RETURNING id',
+        [userId, demoName, '0000000000', JSON.stringify({ city: 'Mumbai' })]
+      );
+      
+      return newVendor.rows[0].id;
+    }
+
+    // If not demo-vendor, ensure it is a valid UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(input)) {
+      throw new ValidationError(`Invalid Vendor ID format: ${input}`);
+    }
+
+    return input;
   }
 
   async updatePackage(id: string, updates: any) {
@@ -122,13 +180,12 @@ export class VendorService {
   }
 
   async generateMetadata(vendorId: string, listingId?: string) {
-    if (!vendorId) {
-      throw new ValidationError('vendorId is required');
-    }
+    // Resolve ID here too just in case
+    const realVendorId = await this.resolveVendorId(vendorId);
 
     const vendorResult = await this.db.query(
       'SELECT id, business_name, location FROM vendors WHERE id = $1',
-      [vendorId]
+      [realVendorId]
     );
 
     if (vendorResult.rows.length === 0) {
@@ -167,6 +224,7 @@ export class VendorService {
   }
 
   private async fetchListingContext(listingId: string) {
+    // Check Postgres first
     const pgResult = await this.db.query(
       `SELECT title, description, tags, price, location
        FROM listings
@@ -188,6 +246,7 @@ export class VendorService {
       };
     }
 
+    // Check MongoDB draft
     if (!this.mongo) {
       await this.initialize();
     }
@@ -300,4 +359,3 @@ export class VendorService {
     return new ObjectId(id);
   }
 }
-
