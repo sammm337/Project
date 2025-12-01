@@ -11,6 +11,7 @@ import VendorCreatePackage from './pages/VendorCreatePackage';
 import AgencyEvents from './pages/AgencyEvents';
 import BookingFlow from './pages/BookingFlow';
 import Home from './pages/Home';
+import Auth from './pages/Auth';
 
 const router = createBrowserRouter([
   {
@@ -24,7 +25,8 @@ const router = createBrowserRouter([
       { path: 'vendor/dashboard', element: <VendorDashboard /> },
       { path: 'vendor/create', element: <VendorCreatePackage /> },
       { path: 'agency/events', element: <AgencyEvents /> },
-      { path: 'booking', element: <BookingFlow /> }
+      { path: 'booking', element: <BookingFlow /> },
+      { path: 'auth',element: <Auth />}
     ]
   }
 ]);

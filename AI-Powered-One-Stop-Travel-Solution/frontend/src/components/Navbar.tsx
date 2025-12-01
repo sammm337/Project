@@ -1,7 +1,9 @@
-import { Link, NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react'; // Import hooks
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'; // Import routing hooks
 import { motion } from 'framer-motion';
-import { Compass, Map, Waves, PanelsTopLeft } from 'lucide-react';
+import { Compass, Map, Waves, PanelsTopLeft, LogOut, User } from 'lucide-react'; // Added LogOut and User icons
 import { Button } from './ui/button';
+import { useToast } from './ui/use-toast'; // Import toast for notifications
 
 const links = [
   { to: '/search', label: 'Traveler Search' },
@@ -12,6 +14,35 @@ const links = [
 ];
 
 export default function Navbar() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const location = useLocation(); // Hooks to detect route changes
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // Check login status whenever the route changes
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    setIsLoggedIn(!!token); // Set true if token exists, false otherwise
+  }, [location]);
+
+  const handleLogout = () => {
+    // 1. Clear storage
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    
+    // 2. Update state
+    setIsLoggedIn(false);
+
+    // 3. Notify user
+    toast({
+      title: "Logged Out",
+      description: "See you next time!",
+    });
+
+    // 4. Redirect to home or auth page
+    navigate('/');
+  };
+
   return (
     <motion.header
       className="sticky top-4 z-50"
@@ -39,12 +70,21 @@ export default function Navbar() {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" className="hidden md:inline-flex">
+          {/* <Button variant="secondary" size="sm" className="hidden md:inline-flex">
             <Map className="mr-2 h-4 w-4" /> Mock Mode
-          </Button>
-          <Button size="sm">
-            <PanelsTopLeft className="mr-2 h-4 w-4" /> Login
-          </Button>
+          </Button> */}
+          
+          {isLoggedIn ? (
+            <Button size="sm" variant="destructive" onClick={handleLogout}>
+              <LogOut className="mr-2 h-4 w-4" /> Logout
+            </Button>
+          ) : (
+            <Link to="/auth">
+              <Button size="sm">
+                <PanelsTopLeft className="mr-2 h-4 w-4" /> Login
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
       <div className="mt-3 flex items-center justify-center gap-4 text-xs text-slate-400 md:hidden">
@@ -58,4 +98,3 @@ export default function Navbar() {
     </motion.header>
   );
 }
-
