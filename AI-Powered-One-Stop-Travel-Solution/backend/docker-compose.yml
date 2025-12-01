@@ -319,6 +319,7 @@ services:
     ports:
       - "3011:3011"
     environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       PORT: 3011
       SEARCH_SERVICE_URL: http://search-service:3007
     depends_on:

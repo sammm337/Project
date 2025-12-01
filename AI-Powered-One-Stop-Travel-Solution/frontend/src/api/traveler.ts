@@ -14,10 +14,16 @@ export function recommend(payload: { userId: string; mode: 'via_vendor' | 'via_a
   });
 }
 
-export function itinerary(payload: { userId: string; selectionId: string; nights: number }) {
+export interface ItineraryPayload {
+  destination: string;
+  days: number;
+  budget: string;
+  interests: string;
+}
+
+export function itinerary(payload: ItineraryPayload) {
   return request<{ days: unknown[] }>('/api/traveler/itinerary', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
 }
-
