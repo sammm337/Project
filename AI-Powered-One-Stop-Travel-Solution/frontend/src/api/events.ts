@@ -10,9 +10,15 @@ export interface EventInput {
 }
 
 export function createEvent(payload: EventInput) {
+  // Safety: If date is empty string, default to now() to prevent backend 500/400 error
+  const safePayload = {
+    ...payload,
+    date: payload.date || new Date().toISOString()
+  };
+
   return request('/api/events', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: JSON.stringify(safePayload)
   });
 }
 
@@ -60,6 +66,8 @@ export function bookEvent(id: string, payload: { name: string; guests: number })
 }
 
 export function createBooking(payload: { eventId: string; userId: string }) {
-  return request('/api/bookings', { method: 'POST', body: JSON.stringify(payload) });
+  return request('/api/bookings', { 
+    method: 'POST', 
+    body: JSON.stringify(payload) 
+  });
 }
-

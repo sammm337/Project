@@ -52,3 +52,59 @@ export async function requestForm<T>(path: string, body: FormData, options: Requ
   return response.json();
 }
 
+// const BASE_URL = import.meta.env.VITE_API_BASE ?? '';
+
+// export interface RequestOptions extends RequestInit {
+//   mock?: boolean;
+//   mockResponse?: any;
+// }
+
+// export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+//   const { mock, mockResponse, ...fetchOptions } = options;
+
+//   if (mock) {
+//     await new Promise(resolve => setTimeout(resolve, 500));
+//     return mockResponse as T;
+//   }
+
+//   const token = localStorage.getItem('token');
+//   const headers = new Headers(fetchOptions.headers);
+  
+//   if (!headers.has('Content-Type') && !(fetchOptions.body instanceof FormData)) {
+//     headers.set('Content-Type', 'application/json');
+//   }
+
+//   if (token) {
+//     headers.set('Authorization', `Bearer ${token}`);
+//   }
+
+//   // Ensure path starts with / to avoid relative path issues
+//   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+//   const url = `${BASE_URL}${normalizedPath}`;
+
+//   const response = await fetch(url, {
+//     ...fetchOptions,
+//     headers
+//   });
+
+//   // 1. Check if response is JSON
+//   const contentType = response.headers.get('content-type');
+//   if (contentType && contentType.includes('text/html')) {
+//     console.error(`API Error: Endpoint ${url} returned HTML (likely 404 or Gateway error).`);
+//     throw new Error(`Service unreachable: ${response.statusText}`);
+//   }
+
+//   const text = await response.text();
+//   let data;
+//   try {
+//     data = text ? JSON.parse(text) : {};
+//   } catch (err) {
+//     throw new Error('Received invalid JSON from server');
+//   }
+
+//   if (!response.ok) {
+//     throw new Error(data.error || data.message || `Request failed: ${response.status}`);
+//   }
+
+//   return data as T;
+// }
