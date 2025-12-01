@@ -17,17 +17,18 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173. All proxies assume backend runs on http://localhost:8000; adjust `vite.config.ts` if your API uses another port.
+Then open http://localhost:5173. The dev proxy now targets the API gateway on http://localhost:3000 by default (matching the Docker Compose setup). Override `VITE_API_PROXY_TARGET` if your backend listens elsewhere.
 
 ### Environment Variables
 
 Create `.env` (optional):
 
 ```
-VITE_API_BASE=http://localhost:8000
+VITE_API_BASE=http://localhost:3000
+VITE_API_PROXY_TARGET=http://localhost:3000
 ```
 
-Update `src/api/http.ts` to consume this value if needed.
+`VITE_API_BASE` is optional for production builds when you want absolute URLs; dev uses the proxy target automatically.
 
 ## Available Scripts
 

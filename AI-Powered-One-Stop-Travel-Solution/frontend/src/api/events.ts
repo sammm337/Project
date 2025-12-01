@@ -12,38 +12,50 @@ export interface EventInput {
 export function createEvent(payload: EventInput) {
   return request('/api/events', {
     method: 'POST',
-    body: JSON.stringify(payload),
-    mock: true,
-    mockResponse: { eventId: `evt-${Date.now()}` }
+    body: JSON.stringify(payload)
   });
 }
 
-export function listEvents() {
-  return request<{ events: unknown[] }>('/api/events', {
-    method: 'GET',
-    mock: true,
-    mockResponse: {
-      events: [
-        {
-          id: 'evt-1',
-          title: 'Panjim jazz crawl',
-          city: 'Goa',
-          date: new Date().toISOString(),
-          price: 3200,
-          summary: 'Live music across waterfront speakeasies with local chefs.',
-          tags: ['Music', 'Food']
-        }
-      ]
-    }
+interface EventListEnvelope<T = unknown> {
+  events?: T[];
+  data?: T[];
+  success?: boolean;
+}
+
+function extractEvents<T>(payload: EventListEnvelope<T> | T[] | undefined): T[] {
+  if (!payload) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload.events)) {
+    return payload.events;
+  }
+
+  if (Array.isArray(payload.data)) {
+    return payload.data;
+  }
+
+  return [];
+}
+
+export async function listEvents() {
+  const response = await request<EventListEnvelope>('/api/events', {
+    method: 'GET'
   });
+
+  return {
+    events: extractEvents(response)
+  };
 }
 
 export function bookEvent(id: string, payload: { name: string; guests: number }) {
   return request(`/api/events/${id}/book`, {
     method: 'POST',
-    body: JSON.stringify(payload),
-    mock: true,
-    mockResponse: { ok: true }
+    body: JSON.stringify(payload)
   });
 }
 

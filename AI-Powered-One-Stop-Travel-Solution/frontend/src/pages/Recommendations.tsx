@@ -24,8 +24,9 @@ export default function Recommendations() {
     try {
       const viaVendor = await recommend({ userId: 'demo', mode: 'via_vendor' });
       const viaAgency = await recommend({ userId: 'demo', mode: 'via_agency' });
-      setVendorRecs(viaVendor.results as Recommendation[]);
-      setAgencyRecs(viaAgency.results as Recommendation[]);
+      setVendorRecs((viaVendor?.results ?? []) as Recommendation[]);
+      setAgencyRecs((viaAgency?.results ?? []) as Recommendation[]);
+
     } catch (error) {
       toast({
         title: 'Recommendations unavailable',
