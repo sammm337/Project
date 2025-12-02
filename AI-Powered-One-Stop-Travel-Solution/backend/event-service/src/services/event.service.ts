@@ -14,6 +14,7 @@ interface NormalizedEventInput {
   price: number;
   totalSeats: number;
   tags?: string[];
+  coverImage?: string; // <--- ENSURE THIS IS HERE
 }
 
 export class EventService {
@@ -39,9 +40,10 @@ export class EventService {
   }
 
   async createEvent(data: NormalizedEventInput) {
+    // <--- ENSURE cover_image IS IN INSERT STATEMENT AND PARAMS ($11)
     const result = await this.db.query(
-      `INSERT INTO events (agency_id, title, description, location, start_date, end_date, price, total_seats, available_seats, tags)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO events (agency_id, title, description, location, start_date, end_date, price, total_seats, available_seats, tags, cover_image)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         data.agencyId,
@@ -53,7 +55,8 @@ export class EventService {
         data.price,
         data.totalSeats,
         data.totalSeats,
-        data.tags || []
+        data.tags || [],
+        data.coverImage || null 
       ]
     );
 
@@ -80,8 +83,9 @@ export class EventService {
   }
 
   async listEvents(limit = 50) {
+    // <--- ENSURE cover_image IS SELECTED
     const result = await this.db.query(
-      `SELECT id, title, description, location, start_date, price, tags, total_seats, available_seats
+      `SELECT id, title, description, location, start_date, price, tags, total_seats, available_seats, cover_image
        FROM events
        ORDER BY start_date ASC
        LIMIT $1`,
@@ -102,7 +106,8 @@ export class EventService {
         price: Number(row.price),
         capacity: row.total_seats,
         availableSeats: row.available_seats,
-        tags: row.tags || []
+        tags: row.tags || [],
+        coverImage: row.cover_image // <--- ENSURE THIS IS MAPPED
       };
     });
   }
@@ -193,7 +198,8 @@ export class EventService {
       endDate,
       price,
       totalSeats,
-      tags: this.parseTags(payload.tags)
+      tags: this.parseTags(payload.tags),
+      coverImage: payload.coverImage // <--- THIS LINE IS CRITICAL
     };
   }
 
@@ -291,4 +297,3 @@ export class EventService {
     return userId;
   }
 }
-

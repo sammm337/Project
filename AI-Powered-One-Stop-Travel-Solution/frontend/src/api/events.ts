@@ -7,6 +7,7 @@ export interface EventInput {
   price: number;
   city: string;
   tags: string[];
+  coverImage?: string;
 }
 
 export function createEvent(payload: EventInput) {
