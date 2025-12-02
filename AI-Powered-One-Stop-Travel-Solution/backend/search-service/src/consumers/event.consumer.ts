@@ -1,5 +1,4 @@
 import { RabbitMQClient } from '../../../shared/dist/rabbitmq/client';
-import { EventCreatedEvent } from '../../../shared/dist/types/events';
 import { VectorService } from '../services/vector.service';
 import { Logger } from '../../../shared/dist/utils/logger';
 
@@ -15,15 +14,41 @@ export class EventConsumer {
   }
 
   async start() {
-    await this.mq.subscribe('event.created', async (payload: EventCreatedEvent['payload']) => {
+    await this.mq.subscribe('event.created', async (payload: any) => {
       try {
-        // If embedding already exists, it's already indexed
-        this.logger.info(`Event created event received: ${payload.eventId}`);
+        // FIX: Use 'eventId' instead of 'id'
+        const id = payload.eventId || payload.id;
+        this.logger.info(`Processing event.created for ${id}`);
+
+        const searchText = `
+          ${payload.title} 
+          ${payload.description} 
+          ${payload.tags ? payload.tags.join(' ') : ''} 
+          ${payload.location?.city || ''} 
+          Event from ${payload.startDate}
+        `.trim();
+
+        const vector = await this.vectorService.generateEmbedding(searchText);
+
+        await this.vectorService.upsertPoint(
+          'events',
+          id, // Use the extracted ID
+          vector,
+          {
+            entityId: id,
+            agencyId: payload.agencyId,
+            price: payload.price,
+            startDate: payload.startDate,
+            tags: payload.tags,
+            title: payload.title
+          }
+        );
+
+        this.logger.info(`Successfully indexed event ${id}`);
+
       } catch (error) {
-        this.logger.error(`Error processing event.created for ${payload.eventId}`, error);
-        throw error;
+        this.logger.error(`Error processing event.created`, error);
       }
     }, 'search-service-event');
   }
 }
-

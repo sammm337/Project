@@ -70,7 +70,9 @@ export interface ListingCreatedEvent {
     price: number;
     location: any;
     tags: string[];
+    status: string;
     embeddingId?: string;
+    images?: string[]; // <--- Ensure this is added
   };
 }
 

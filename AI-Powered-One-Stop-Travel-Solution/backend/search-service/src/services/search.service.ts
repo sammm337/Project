@@ -17,8 +17,8 @@ export class SearchService {
   async initialize() {
     this.mongo = await connectMongo();
     // Ensure collections exist
-    await this.vectorService.createCollection('listings', 384);
-    await this.vectorService.createCollection('events', 384);
+    await this.vectorService.createCollection('listings', 768);
+    await this.vectorService.createCollection('events', 768);
   }
 
   async semanticSearch(query: string, filters: SearchFilters, mode: 'via_vendor' | 'via_agency' = 'via_vendor') {

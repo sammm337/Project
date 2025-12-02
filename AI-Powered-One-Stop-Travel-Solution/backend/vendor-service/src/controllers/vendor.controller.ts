@@ -46,7 +46,8 @@ const uploadFields = upload.fields([
 
 vendorRouter.post('/create-package', uploadFields, async (req: Request, res: Response) => {
   try {
-    const filesMap = req.files as { [fieldname: string]: Express.Multer.File[] };
+    // UPDATE: Handle undefined req.files gracefully (for text-only JSON requests)
+    const filesMap = (req.files || {}) as { [fieldname: string]: Express.Multer.File[] };
     
     // Only process images since you disabled audio
     const filePaths: string[] = [];
@@ -55,7 +56,7 @@ vendorRouter.post('/create-package', uploadFields, async (req: Request, res: Res
     }
 
     // Extract fields
-    const { vendorId, price, title, description, location: locationStr } = req.body;
+    const { vendorId, price, title, description, location: locationStr, tags } = req.body;
     
     // Parse location
     let location = { city: 'Unknown' };
@@ -67,14 +68,30 @@ vendorRouter.post('/create-package', uploadFields, async (req: Request, res: Res
       }
     }
 
-    // UPDATE: Pass title and description to the service
+    // UPDATE: Parse tags (handles JSON string, comma-separated string, or array)
+    let parsedTags: string[] = [];
+    if (tags) {
+      if (Array.isArray(tags)) {
+        parsedTags = tags;
+      } else if (typeof tags === 'string') {
+         // Check if it's a JSON array string like "['a','b']" or comma separated "a,b"
+         try {
+            parsedTags = tags.startsWith('[') ? JSON.parse(tags) : tags.split(',');
+         } catch {
+            parsedTags = tags.split(',');
+         }
+      }
+    }
+
+    // UPDATE: Pass parsed tags to service
     const result = await vendorService.createPackage(
       vendorId, 
       filePaths, 
       Number(price), 
       location, 
       title, 
-      description
+      description,
+      parsedTags
     );
 
     res.status(201).json({ success: true, data: result });

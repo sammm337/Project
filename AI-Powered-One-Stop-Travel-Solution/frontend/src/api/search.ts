@@ -14,15 +14,26 @@ export interface Listing {
   tags: string[];
   score: number;
   description: string;
+  vendorName?: string; // Added optional fields returned by backend
+  city?: string;
+  date?: string;
+}
+
+// Update response interface to match backend wrapper
+export interface SearchResponse {
+  success: boolean;
+  data: Listing[];
 }
 
 export function semanticSearch(payload: SemanticSearchInput, mock?: boolean) {
-  return request<{ results: Listing[] }>('/search/semantic', {
+  return request<SearchResponse>('/search/semantic', {
     method: 'POST',
     body: JSON.stringify(payload),
     mock,
+    // Update mock response to match real backend structure
     mockResponse: {
-      results: [
+      success: true,
+      data: [
         {
           id: 'mock-1',
           title: 'Coastal Foraging Walk',
@@ -45,4 +56,3 @@ export function getListings(params: Record<string, string>) {
 export function getListing(id: string) {
   return request<Listing>(`/api/listings/${id}`, { method: 'GET' });
 }
-

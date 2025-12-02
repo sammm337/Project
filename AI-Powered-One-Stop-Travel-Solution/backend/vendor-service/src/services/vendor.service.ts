@@ -2,7 +2,8 @@ import { Pool } from 'pg';
 import { MongoClient, ObjectId } from 'mongodb';
 import { connectPostgres, connectMongo } from '../db/connection';
 import { RabbitMQClient } from '../../../shared/dist/rabbitmq/client';
-import { MediaUploadedEvent } from '../../../shared/dist/types/events';
+// UPDATE: Added ListingCreatedEvent to imports
+import { MediaUploadedEvent, ListingCreatedEvent } from '../../../shared/dist/types/events';
 import { ValidationError, NotFoundError } from '../../../shared/dist/utils/errors';
 
 export class VendorService {
@@ -37,12 +38,18 @@ export class VendorService {
     files: string[], 
     price: number, 
     location: any, 
-    title: string,       // <--- NEW
-    description: string  // <--- NEW
+    title: string,       
+    description: string,
+    tags: string[] = [] // <--- UPDATE: Accept tags
   ) {
-    if (!files || files.length === 0) {
-      throw new ValidationError('At least one image is required');
-    }
+    // 1. REMOVE STRICT VALIDATION
+    // if (!files || files.length === 0) { ... }
+
+    // 2. ASSIGN DEFAULT IMAGE if none provided
+    // This allows the frontend to send text-only data while keeping the system happy
+    const imageFiles = (files && files.length > 0) 
+      ? files 
+      : ['/assets/mock-konkan-1.jpg']; 
 
     if (!price || price <= 0) {
       throw new ValidationError('Valid price is required');
@@ -50,57 +57,98 @@ export class VendorService {
 
     const realVendorId = await this.resolveVendorId(vendorId);
 
-    // Verify vendor exists (existing logic...)
+    // Verify vendor exists
     const vendorCheck = await this.db.query('SELECT id FROM vendors WHERE id = $1', [realVendorId]);
     if (vendorCheck.rows.length === 0) {
       throw new NotFoundError('Vendor');
     }
 
     const packageObjectId = new ObjectId();
-    const packageId = packageObjectId.toHexString();
+    const mongoDocId = packageObjectId.toHexString();
     
     if (!this.mongo) {
       await this.initialize();
     }
     const db = this.mongo!.db('travel_marketplace');
 
-    // UPDATE: Save the title and description in the document
+    // 3. SAVE TO MONGODB (Rich Data)
     await db.collection('vendor_packages').insertOne({
       _id: packageObjectId,
       vendorId: realVendorId,
-      files,
+      files: imageFiles, // Save the placeholder or real files
       price,
       location,
-      title,             // <--- SAVED
-      description,       // <--- SAVED
-      status: 'draft',
+      title,             
+      description,
+      tags,              // Save tags
+      status: 'published', // Publish immediately for search visibility
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
-    // Publish media.uploaded events (existing logic...)
-    for (const filePath of files) {
-      const event: MediaUploadedEvent = {
-        topic: 'media.uploaded',
+    // 4. SYNC TO POSTGRES (Structured Data for Listings)
+    // This is critical for the Listing Service and Search Service to find the record via SQL
+    const listingResult = await this.db.query(
+      `INSERT INTO listings 
+       (vendor_id, title, description, price, location, tags, status, mongo_doc_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, 'published', $7) 
+       RETURNING id`,
+      [
+        realVendorId, 
+        title, 
+        description, 
+        price, 
+        JSON.stringify(location), 
+        tags, 
+        mongoDocId
+      ]
+    );
+
+    const listingId = listingResult.rows[0].id;
+
+    // 5. PUBLISH "listing.created" EVENT
+    // This tells the Search Service to index this new listing immediately
+    const listingEvent: ListingCreatedEvent = {
+        topic: 'listing.created',
         payload: {
-          entityType: 'listing',
-          entityId: packageId,
-          filePath,
-          fileType: this.getFileType(filePath),
-          fileSize: 0 
+            listingId: listingId,
+            vendorId: realVendorId,
+            title,
+            description,
+            price,
+            location,
+            tags,
+            status: 'published',
+            images: imageFiles // Pass images so search can display them
         }
-      };
-      await this.mq.publish('media.uploaded', event.payload);
+    };
+    await this.mq.publish('listing.created', listingEvent.payload);
+
+    // 6. PUBLISH "media.uploaded" ONLY IF REAL FILES EXIST
+    if (files && files.length > 0) {
+      for (const filePath of files) {
+        const event: MediaUploadedEvent = {
+          topic: 'media.uploaded',
+          payload: {
+            entityType: 'listing',
+            entityId: listingId,
+            filePath,
+            fileType: this.getFileType(filePath),
+            fileSize: 0 
+          }
+        };
+        await this.mq.publish('media.uploaded', event.payload);
+      }
     }
 
-    return { packageId };
+    return { packageId: mongoDocId, listingId };
   }
+
   // 🔥 Helper to handle 'demo-vendor' or validate UUIDs
   private async resolveVendorId(input: string): Promise<string> {
     if (input === 'demo-vendor') {
       const demoName = 'Demo Vendor';
       
-      // Check if demo vendor exists
       const existing = await this.db.query(
         'SELECT id FROM vendors WHERE business_name = $1 LIMIT 1', 
         [demoName]
@@ -110,7 +158,6 @@ export class VendorService {
         return existing.rows[0].id;
       }
 
-      // Create guest user if needed
       const email = 'vendor@travel.local';
       let userId: string;
       const userCheck = await this.db.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -125,7 +172,6 @@ export class VendorService {
         userId = newUser.rows[0].id;
       }
 
-      // Create the vendor
       const newVendor = await this.db.query(
         'INSERT INTO vendors (user_id, business_name, whatsapp_number, location) VALUES ($1, $2, $3, $4) RETURNING id',
         [userId, demoName, '0000000000', JSON.stringify({ city: 'Mumbai' })]
@@ -134,7 +180,6 @@ export class VendorService {
       return newVendor.rows[0].id;
     }
 
-    // If not demo-vendor, ensure it is a valid UUID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(input)) {
       throw new ValidationError(`Invalid Vendor ID format: ${input}`);
@@ -180,7 +225,6 @@ export class VendorService {
   }
 
   async generateMetadata(vendorId: string, listingId?: string) {
-    // Resolve ID here too just in case
     const realVendorId = await this.resolveVendorId(vendorId);
 
     const vendorResult = await this.db.query(
@@ -224,7 +268,6 @@ export class VendorService {
   }
 
   private async fetchListingContext(listingId: string) {
-    // Check Postgres first
     const pgResult = await this.db.query(
       `SELECT title, description, tags, price, location
        FROM listings
@@ -246,7 +289,6 @@ export class VendorService {
       };
     }
 
-    // Check MongoDB draft
     if (!this.mongo) {
       await this.initialize();
     }

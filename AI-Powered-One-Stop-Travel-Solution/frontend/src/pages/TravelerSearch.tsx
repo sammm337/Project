@@ -29,15 +29,20 @@ export default function TravelerSearch() {
             radius_km: filters?.radius
           }
         },
-        true
+        false // Keep this false for real backend
       );
-      setResults(response.results);
+      
+      // FIX: Use response.data and fallback to empty array if undefined
+      setResults(response.data || []);
+      
     } catch (error) {
+      console.error("Search Error:", error); // Helpful for debugging
       toast({
         title: 'Search failed',
         description: (error as Error).message,
         variant: 'destructive'
       });
+      setResults([]); // Ensure results is an array on error
     } finally {
       setLoading(false);
     }
@@ -76,14 +81,16 @@ export default function TravelerSearch() {
       </Tabs>
       <FiltersPanel open={filtersOpen} onChange={setFilters} />
       <div className="flex items-center justify-between text-sm text-slate-300">
-        <span>{results.length} results</span>
+        {/* Safety check: ensure results is defined before accessing length */}
+        <span>{(results || []).length} results</span>
         <Button variant="ghost" onClick={() => runSearch('')}>
           Refresh
         </Button>
       </div>
       {loading && <p className="text-center text-slate-400">Searching...</p>}
       <motion.div layout className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-        {results.map((item) =>
+        {/* Safety check: ensure results is an array before mapping */}
+        {Array.isArray(results) && results.map((item) =>
           mode === 'via_vendor' ? (
             <PackageCard
               key={item.id}
@@ -114,10 +121,9 @@ export default function TravelerSearch() {
           )
         )}
       </motion.div>
-      {!loading && results.length === 0 && (
+      {!loading && (!results || results.length === 0) && (
         <p className="text-center text-slate-400">No experiences yet — try another vibe.</p>
       )}
     </div>
   );
 }
-
